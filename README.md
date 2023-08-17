@@ -16,7 +16,7 @@ Visual Studio search algorithm inspired by [CMake](https://github.com/Kitware/CM
 
 1. use meta class to generate com function
 
-2. use c_void_p class type to avoid explict to specify this pointer to COM interface
+2. use c_void_p class type to avoid explict to specify "this" pointer to COM interface
 
 
 # usage
@@ -137,13 +137,13 @@ cmake generators for VS major version with cmake --help:
 ```
 
 
-COM implement:
+# COM implement
 
 1. use ctypes to load COM lib,
 
 2. then create COM object and get Interface.
 
-3. 
+3. use [RAII](https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization) to manage COM reference, call Release() at destructor, if constructor object by already created object, call AddRef() at constructor to be also an owner.
 
 
 
