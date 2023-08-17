@@ -1,0 +1,11 @@
+
+
+
+
+Release 1.0.0
+--------------
+
+basic VisualStudio installation search
+1. search new version by COM and VSWhere.exe
+2. search old verson by register table
+

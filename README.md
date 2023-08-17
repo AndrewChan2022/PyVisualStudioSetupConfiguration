@@ -12,12 +12,13 @@ Windows COM implement using python standard library ctypes, inspired by [comtype
 Visual Studio search algorithm inspired by [CMake](https://github.com/Kitware/CMake).
 
 
-# future work
+# install
 
-1. use meta class to generate com function
+    pip install PyVisualStudioSetupConfiguration
 
-2. use c_void_p class type to avoid explict to specify "this" pointer to COM interface
+or 
 
+    copy PyVisualStudioSetupConfiguration.py to your project
 
 # usage
 
@@ -27,17 +28,27 @@ Visual Studio search algorithm inspired by [CMake](https://github.com/Kitware/CM
 
 from PyVisualStudioSetupConfiguration import GetAllVSInstanceInfo
 
-# get list of VisualStudio Instance Info
-vsInstances = GetAllVSInstanceInfo()
+if __name__ == '__main__':
 
-# print the list
-print(vsInstances)
+    # get list of VisualStudio Instance Info
+    vsInstances = GetAllVSInstanceInfo()
 
-# get version of first instance
-if len(vsInstances):
-    version = vsInstances[0].getVersion()
-    major   = vsInstances[0].getVerionMajor()
-    chip    =  vsInstances[0].chip or ""
+    # print the list
+    print(vsInstances)
+
+    # get version of first instance
+    if len(vsInstances):
+        vsInstance = vsInstances[0]
+
+        s = 'vsInstances[0] :\n'
+        s += f'    VSInstallLocation   : {vsInstance.VSInstallLocation}\n'
+        s += f'    Version             : {vsInstance.getVersion()}\n'
+        s += f'    versionMajor        : {vsInstance.getVerionMajor()}\n'
+        s += f'    VCToolsetVersion    : {vsInstance.VCToolsetVersion}\n'
+        s += f'    bWin10SDK           : {vsInstance.bWin10SDK}\n'
+        s += f'    bWin81SDK           : {vsInstance.bWin81SDK}\n'
+        s += f'    chip                : {vsInstance.chip}\n'
+        print(s)
 
 ```
 
@@ -54,6 +65,15 @@ if len(vsInstances):
     bWin81SDK           : None
     chip                : x64
 ]
+vsInstances[0] :
+    VSInstallLocation   : d:\Program Files\Microsoft Visual Studio\2022\Community
+    Version             : 17.4.33213.308
+    versionMajor        : 17
+    VCToolsetVersion    : 14.34.31933
+    bWin10SDK           : True
+    bWin81SDK           : None
+    chip                : x64
+
 ```
 
 ## VSInstanceInfo define
@@ -146,7 +166,15 @@ cmake generators for VS major version with cmake --help:
 3. use [RAII](https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization) to manage COM reference, call Release() at destructor, if constructor object by already created object, call AddRef() at constructor to be also an owner.
 
 
+# future work
 
+1. use meta class to generate com function
+
+2. use c_void_p class type to avoid explict to specify "this" pointer to COM interface
+
+# change log
+
+check [CHANGES.txt](./CHANGES.txt)
 
 # Acknowledgement
 

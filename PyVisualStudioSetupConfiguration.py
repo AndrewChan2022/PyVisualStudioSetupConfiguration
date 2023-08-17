@@ -159,7 +159,7 @@ class IUnknown(object):
     def _AutoCleanComReference_(self):
         if self._IThis:
             try: self.Release()
-            except Exception as e: print(e)
+            except Exception as e: pass # print(e)
 
     def SetComInterface(self, comInterface):
         self._IThis = comInterface
