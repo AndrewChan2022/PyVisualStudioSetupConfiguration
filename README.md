@@ -1,9 +1,8 @@
 # PyVisualStudioSetupConfiguration
 
-
 # overview
 
-This is pure python single file to search Visual Studio installation information.
+[PyVisualStudioSetupConfiguration](https://github.com/AndrewChan2022/PyVisualStudioSetupConfiguration) is pure python single file to search Visual Studio installation information.
 
 The result is list of Visual Studio instances with version, path, and chip information.
 

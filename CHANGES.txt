@@ -1,6 +1,12 @@
 
+Release 1.1.0
+--------------
+fix bugs cannot find visual studio 2022 if 2013 installed
+add comment
 
-
+Release 1.0.3
+--------------
+add get method from cmake
 
 Release 1.0.0
 --------------

@@ -1,8 +1,36 @@
+#
+# Copyright 2023 Pixar
+#
+# Licensed under the Apache License, Version 2.0 (the "Apache License")
+# with the following modification; you may not use this file except in
+# compliance with the Apache License and the following modification to it:
+# Section 6. Trademarks. is deleted and replaced with:
+#
+# 6. Trademarks. This License does not grant permission to use the trade
+#    names, trademarks, service marks, or product names of the Licensor
+#    and its affiliates, except as required to comply with Section 4(c) of
+#    the License and to reproduce the content of the NOTICE file.
+#
+# You may obtain a copy of the Apache License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the Apache License with the above modification is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the Apache License for the specific
+# language governing permissions and limitations under the Apache License.
+#
+
+# Utilities for finding Visual Studio installation information
+#
+# this file should keep as single file independent of others
+
 import os, subprocess, winreg, atexit, re
 import ctypes
 import ctypes.wintypes
 import json
-
+from enum import IntEnum
 
 __all__ = [
     "GetAllVSInstanceInfo",     # get list of VSInstanceInfo
@@ -29,7 +57,7 @@ def InitCom():
     global CoUninitialize
     global SafeArrayDestroy
     try:
-        ole32 = ctypes.OleDLL('Ole32.dll')   # WinDLL('Ole32.dll')
+        ole32 = ctypes.OleDLL('Ole32.dll')
         CoInitialize = ole32.CoInitialize
         CoUninitialize = ole32.CoUninitialize
         CoCreateInstance = ole32.CoCreateInstance
@@ -43,7 +71,6 @@ def InitCom():
     except Exception as e:
         print("COM init fail:", e)
 
-
 # InitCOM be called for thread who imports this file first time
 InitCom()
 
@@ -54,31 +81,30 @@ def UninitCom(func = CoUninitialize):
         try: func()
         except WindowsError: pass
 
-
 def CreateComObject(clsid, interface = None):
-
     if not interface:
         interface = IUnknown
     iid = interface._iid
     obj = ctypes.c_void_p(None)
     clsctx = 1
-    rc = CoCreateInstance(ctypes.byref(clsid), 0, clsctx, ctypes.byref(iid), ctypes.byref(obj))
+    try: rc = CoCreateInstance(ctypes.byref(clsid), 0, clsctx, ctypes.byref(iid), ctypes.byref(obj))
+    except: return None
+
     if rc != 0:
         return None
     return interface(obj)
 
-# pack args to tuple argtypes, then unpack in GenerateComMethod
 def COMMETHOD(idx, restype, name, *argtypes):
+    """pack args to tuple argtypes, then unpack in GenerateComMethod"""
     return (idx, restype, name, argtypes)
     
-# generate COM function as class member method
 def GenerateComMethod(cls, instance, functions):
+    """generate COM function as class instance method"""
     if cls != IUnknown:
         GenerateComMethod(cls.__bases__[0], instance, functions)
         startIndex = cls.__bases__[0].GetComMethodCount()
     else:
         startIndex = 0
-
 
     # generate method
     for method in cls._methods:
@@ -90,7 +116,6 @@ def GenerateComMethod(cls, instance, functions):
         setattr(instance, "_%s__com_%s" % (cls.__name__, name), comfunc)
 
 class GUID(ctypes.Structure):
-
     _fields_ = [("Data1", ctypes.c_ulong),
                 ("Data2", ctypes.c_ushort),
                 ("Data3", ctypes.c_ushort),
@@ -117,11 +142,12 @@ class GUID(ctypes.Structure):
             self.Data4[0], self.Data4[1], self.Data4[2], self.Data4[3],
             self.Data4[5], self.Data4[5], self.Data4[6], self.Data4[7])
 
-
-# should use meta class to simplify
 class IUnknown(object):
+    """base class for com interface
+    TODO: should use meta class to simplify
+    """
 
-    ### interface config data, _xxx_ means private data, not python meta data
+    # private config data of com interface
     _iid = GUID("{00000000-0000-0000-C000-000000000046}")
     _methods = [
         COMMETHOD(0, ctypes.HRESULT, "QueryInterface",
@@ -132,7 +158,7 @@ class IUnknown(object):
         ]
     _method_count = len(_methods)
 
-    ### utils to generate COM function
+    # utils to generate com function
     @classmethod
     def GetComMethodCount(cls):
         if cls == IUnknown:
@@ -140,13 +166,11 @@ class IUnknown(object):
         else:
             return cls._method_count + cls.__bases__[0].GetComMethodCount()
 
-
-    # use RAII to manage COM reference
-    # comInterface: nullptr or ctypes.POINTER of COM interface
-    # owner: False if comInterface already has owner
-    #        so need AddRef let me also owner
-    # use RAII to manage COM reference, register Release at destructor
     def __init__(self, comInterface = None, owner = True) -> None:
+        """use RAII to manage COM reference, register Release at destructor
+        comInterface: nullptr or 'this' pointer of COM interface
+        owner: False if comInterface already has owner, so AddRef also to be its onwer
+        """
         atexit.register(self._AutoCleanComReference_)
         if comInterface is None:
             self._IThis = ctypes.c_void_p()
@@ -158,6 +182,7 @@ class IUnknown(object):
 
     def _AutoCleanComReference_(self):
         if self._IThis:
+            # unnecessary, will be released when thread over
             try: self.Release()
             except Exception as e: pass # print(e)
 
@@ -165,13 +190,14 @@ class IUnknown(object):
         self._IThis = comInterface
         if not comInterface:
             return
+        
         # interface point to object, first element is vtable
         VTable = ctypes.cast(comInterface, ctypes.POINTER(ctypes.c_void_p))
         wk = ctypes.c_void_p(VTable[0])
         functions = ctypes.cast(wk, ctypes.POINTER(ctypes.c_void_p))
         GenerateComMethod(type(self), self, functions)
 
-    ### Com method
+    # com interface methods
     def QueryInterface(self, interface):
         iid = interface._iid
         p = ctypes.c_void_p()
@@ -187,9 +213,11 @@ class IUnknown(object):
         return self.__com_Release(self._IThis)
 
 
-# official interface : https://github.com/microsoft/vs-setup-samples
-# official example   : https://github.com/Microsoft/vswhere
+
 class ISetupConfiguration(IUnknown):
+    """official interface: https://github.com/microsoft/vs-setup-samples
+    official example: https://github.com/Microsoft/vswhere
+    """
     _iid = GUID("{42843719-DB4C-46C2-8E7C-64F1816EFD5B}")
     _methods = [
         COMMETHOD(0, ctypes.HRESULT, "EnumInstances",
@@ -239,10 +267,8 @@ class IEnumSetupInstances(IUnknown):
     ]
     _method_count = len(_methods)
 
-    # python cannot pass by reference, so put to rgeltResultList
     def Next(self, celt, rgelt, rgeltResultList, pceltFetched = None):
-
-        # clear result list
+        """python cannot pass by reference, so put to rgeltResultList"""
         if isinstance(rgeltResultList, list):
             rgeltResultList.clear()
 
@@ -299,6 +325,7 @@ class ISetupInstance(IUnknown):
         if rc != 0:
             return None
         return ps.value
+    
     def GetInstallationVersion(self):
         ps = ctypes.c_wchar_p()
         rc = self.__com_GetInstallationVersion(self._IThis, ctypes.byref(ps))
@@ -348,7 +375,6 @@ class ISetupInstance2(ISetupInstance):
         return p.contents
 
 class ISetupPackageReference(IUnknown):
-
     _iid = GUID("{da8d8a16-b2b6-4487-a2f1-594ccccd6bf5}")
     _methods = [
         COMMETHOD(0, ctypes.HRESULT, "GetId",
@@ -381,36 +407,42 @@ class ISetupPackageReference(IUnknown):
         if rc != 0:
             return None
         return ps.value
+    
     def GetVersion(self):
         ps = ctypes.c_wchar_p()
         rc = self.__com_GetVersion(self._IThis, ctypes.byref(ps))
         if rc != 0:
             return None
         return ps.value
+    
     def GetChip(self):
         ps = ctypes.c_wchar_p()
         rc = self.__com_GetChip(self._IThis, ctypes.byref(ps))
         if rc != 0:
             return None
         return ps.value
+    
     def GetLanguage(self):
         ps = ctypes.c_wchar_p()
         rc = self.__com_GetLanguage(self._IThis, ctypes.byref(ps))
         if rc != 0:
             return None
         return ps.value
+    
     def GetBranch(self):
         ps = ctypes.c_wchar_p()
         rc = self.__com_GetBranch(self._IThis, ctypes.byref(ps))
         if rc != 0:
             return None
         return ps.value
+    
     def GetType(self):
         ps = ctypes.c_wchar_p()
         rc = self.__com_GetType(self._IThis, ctypes.byref(ps))
         if rc != 0:
             return None
         return ps.value
+    
     def GetUniqueId(self):
         ps = ctypes.c_wchar_p()
         rc = self.__com_GetUniqueId(self._IThis, ctypes.byref(ps))
@@ -418,10 +450,7 @@ class ISetupPackageReference(IUnknown):
             return None
         return ps.value
 
-
-from enum import IntEnum
 class EInstanceState(IntEnum):
-    
     # The instance state has not been determined.
     eNone = 0,
     
@@ -438,11 +467,11 @@ class EInstanceState(IntEnum):
     eComplete = 0xffffffff  #MAXUINT
 
 def ReadWinreg(rootkey, path, valueName):
-
-    # key: winreg.HKEY_LOCAL_MACHINE
-    # path: r"SOFTWARE\Microsoft\Windows\CurrentVersion"
-    # valueName: name of one value of values under path
-
+    """wrap of winreg to return None instead of exception
+    key: winreg.HKEY_LOCAL_MACHINE
+    path: r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+    valueName: name of one value
+    """
     try: 
         # open folder
         key = winreg.OpenKeyEx(rootkey, path)
@@ -458,40 +487,34 @@ def ReadWinreg(rootkey, path, valueName):
         return None
 
 
-# Enterprise Windows Driver Kit
 def GetEWDKAllVSInstanceInfo(skipEWDK):
-
+    "Enterprise Windows Driver Kit"
     if skipEWDK:
         return []
 
-    try:
-        envEnterpriseWDK = os.getenv("EnterpriseWDK") or ""
-        envDisableRegistryUse = os.getenv("DisableRegistryUse") or ""
-        if envEnterpriseWDK.lower() == "true" and envDisableRegistryUse.lower() == "true":
+    envEnterpriseWDK = os.getenv("EnterpriseWDK") or ""
+    envDisableRegistryUse = os.getenv("DisableRegistryUse") or ""
+    if envEnterpriseWDK.lower() == "true" and envDisableRegistryUse.lower() == "true":
+        envWindowsSdkDir81 = os.getenv("WindowsSdkDir_81") or ""
+        envVSVersion = os.getenv("VisualStudioVersion")
+        envVsInstallDir = os.getenv("VSINSTALLDIR")
+        envVCToolsVersion = os.getenv("VCToolsVersion")
+        envTargetArch = os.getenv("VSCMD_ARG_TGT_ARCH")
+        
+        vsInstanceInfo = VSInstanceInfo()
+        vsInstanceInfo.bWin10SDK = True
+        vsInstanceInfo.bWin81SDK = envWindowsSdkDir81 != ""
+        vsInstanceInfo.Version = envVSVersion
+        vsInstanceInfo.VSInstallLocation = envVsInstallDir
+        vsInstanceInfo.VCToolsetVersion = envVCToolsVersion
+        vsInstanceInfo.chip = envTargetArch
 
-            envWindowsSdkDir81 = os.getenv("WindowsSdkDir_81") or ""
-            envVSVersion = os.getenv("VisualStudioVersion")
-            envVsInstallDir = os.getenv("VSINSTALLDIR")
-            envVCToolsVersion = os.getenv("VCToolsVersion")
-            envTargetArch = os.getenv("VSCMD_ARG_TGT_ARCH")
-            
-            vsInstanceInfo = VSInstanceInfo()
-            vsInstanceInfo.bWin10SDK = True
-            vsInstanceInfo.bWin81SDK = envWindowsSdkDir81 != ""
-            vsInstanceInfo.Version = envVSVersion
-            vsInstanceInfo.VSInstallLocation = envVsInstallDir
-            vsInstanceInfo.VCToolsetVersion = envVCToolsVersion
-            vsInstanceInfo.chip = envTargetArch
-
-            if envVSVersion:
-                return [vsInstanceInfo]
-    except Exception as e:
-        print("GetEWDKAllVSInstanceInfo fail:", e)
+        if envVSVersion:
+            return [vsInstanceInfo]
     
     return []
 
 def _ComGetOneVSInstanceInfo(setupInstance2, needChipInfo):
-
     if not setupInstance2:
         return None
     vsInstanceInfo = VSInstanceInfo()
@@ -507,7 +530,6 @@ def _ComGetOneVSInstanceInfo(setupInstance2, needChipInfo):
         return None
     vsInstanceInfo.Version = version  # no need Wstr to Str
     
-
     # get installation path
     # Reboot may have been required before the installation path was created
     if state & int(EInstanceState.eLocal) == int(EInstanceState.eLocal):
@@ -518,21 +540,20 @@ def _ComGetOneVSInstanceInfo(setupInstance2, needChipInfo):
     
     # Check if a compiler is installed with this instance.
     vcRoot = vsInstanceInfo.VSInstallLocation
-    vcToolsVersionFilePath = os.path.join(vcRoot, "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt")
-    if not os.path.isfile(vcToolsVersionFilePath):
+    if not os.path.isdir(vcRoot):
         return None
-    with open(vcToolsVersionFilePath) as f:
-        vcToolsVersion = f.readline().strip()
-        vcToolsDir = os.path.join(vcRoot, "VC/Tools/MSVC/", vcToolsVersion)
-        if not os.path.isdir(vcToolsDir):
-            return None
-        vsInstanceInfo.VCToolsetVersion = vcToolsVersion
-    
+    # Microsoft.VCToolsVersion.default.txt maybe override by later installed version 
+    vcToolsVersionFilePath = os.path.join(vcRoot, "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt")
+    if os.path.isfile(vcToolsVersionFilePath):
+        with open(vcToolsVersionFilePath) as f:
+            vcToolsVersion = f.readline().strip()
+            vcToolsDir = os.path.join(vcRoot, "VC/Tools/MSVC/", vcToolsVersion)
+            if os.path.isdir(vcToolsDir):
+                vsInstanceInfo.VCToolsetVersion = vcToolsVersion
 
     # enumerate all packages to find win10SDKInstalled win81SDkInstalled and chip info
     # Reboot may have been required before the product package was registered
     if needChipInfo and (state & int(EInstanceState.eRegistered) == int(EInstanceState.eRegistered)):
-
         # check at least one package exist
         package0 = setupInstance2.GetProduct(ISetupPackageReference) # error
         if not package0:
@@ -548,11 +569,10 @@ def _ComGetOneVSInstanceInfo(setupInstance2, needChipInfo):
         count = packages.rgsabound[0].cElements
         pvData = ctypes.cast(packages.pvData, ctypes.POINTER(ctypes.c_void_p))
         for i in range(lower, lower + count):
-
             # get package ISetupPackageReference by its IUnknown interface
-            package = IUnknown(pvData[i], False)
+            package = IUnknown(pvData[i], False) # pvData[i] already owned by packages
             package = package.QueryInterface(ISetupPackageReference) if package else None
-            if not package: 
+            if not package:
                 continue
             
             packageId = package.GetId()
@@ -561,7 +581,6 @@ def _ComGetOneVSInstanceInfo(setupInstance2, needChipInfo):
             win10SDKComponent = "Microsoft.VisualStudio.Component.Windows10SDK"
             win81SDKComponent = "Microsoft.VisualStudio.Component.Windows81SDK"
             vsProductPrefix = "Microsoft.VisualStudio.Product."  # Community/Professional/Enterprise
-            # print("package i:", i, chip, packageType, packageId)
             if win10SDKComponent in packageId and packageType == "Component":
                 vsInstanceInfo.bWin10SDK = True                    
             if win81SDKComponent == packageId and packageType == "Component":
@@ -574,13 +593,16 @@ def _ComGetOneVSInstanceInfo(setupInstance2, needChipInfo):
     return vsInstanceInfo
 
 def ComGetAllVSInstanceInfo(needChipInfo = True):
-
     vsInstances = []
+
+    # remove try, should no except
     try:
         ### get instance enumerator
         clsid = GUID("{177F0C4A-1CD3-4DE7-A32C-71DBBB9FA36D}")
-        unkown = CreateComObject(clsid, IUnknown)
-        setupConfig = unkown.QueryInterface(ISetupConfiguration)
+        unknown = CreateComObject(clsid, IUnknown)
+        if not unknown:
+            return vsInstances
+        setupConfig = unknown.QueryInterface(ISetupConfiguration)
         setupConfig2 = setupConfig.QueryInterface(ISetupConfiguration2)
         enumInstances = setupConfig2.EnumAllInstances(IEnumSetupInstances)
 
@@ -596,47 +618,48 @@ def ComGetAllVSInstanceInfo(needChipInfo = True):
     except Exception as e:
         print("ComGetAllVSInstanceInfo fail:", e)
     
+    # sort
+    vsInstances.sort(key = lambda x: x.getVersion(), reverse=True)
     return vsInstances
 
 def VSWhereGetAllVSInstanceInfo():
-
     vsInstances = []
-    try:
-        for programFile in ["ProgramFiles(x86)", "ProgramFiles"]:
-            programFilePath = os.getenv(programFile)
-            if programFilePath:
-                vsWherePath = programFilePath + "/Microsoft Visual Studio/Installer/vswhere.exe"
-                
-                if os.path.isfile(vsWherePath):
 
-                    try: result = subprocess.check_output(f'"{vsWherePath}" -format json')
-                    except : pass
-                    vsWhereInfo = json.loads(result)
+    for programFile in ["ProgramFiles(x86)", "ProgramFiles"]:
+        programFilePath = os.getenv(programFile)
+        if programFilePath:
+            vsWherePath = programFilePath + "/Microsoft Visual Studio/Installer/vswhere.exe"
+            
+            if os.path.isfile(vsWherePath):
 
-                    for item in vsWhereInfo:
-                        vsInstanceInfo = VSInstanceInfo()
-                        vsInstanceInfo.VSInstallLocation = item.get('installationPath')
-                        vsInstanceInfo.Version = item.get('installationVersion')
-                        vsInstanceInfo.VCToolsetVersion = None
-                        vsInstanceInfo.bWin10SDK = None
-                        vsInstanceInfo.bWin81SDK = None
-                        vsInstanceInfo.chip = None
+                try: result = subprocess.check_output(f'"{vsWherePath}" -format json')
+                except : return vsInstances
+                try: vsWhereInfo = json.loads(result)
+                except: vsWhereInfo = []
 
-                        vsInstances.append(vsInstanceInfo)
-    except Exception as e:
-        print("VSWhereGetAllVSInstanceInfo fail:", e)
+                for item in vsWhereInfo:
+                    vsInstanceInfo = VSInstanceInfo()
+                    vsInstanceInfo.VSInstallLocation = item.get('installationPath')
+                    vsInstanceInfo.Version = item.get('installationVersion') or ""
+                    vsInstanceInfo.VCToolsetVersion = None
+                    vsInstanceInfo.bWin10SDK = None
+                    vsInstanceInfo.bWin81SDK = None
+                    vsInstanceInfo.chip = None
+
+                    vsInstances.append(vsInstanceInfo)
+    
+    #sort
+    vsInstances.sort(key = lambda x: x.getVersion(), reverse=True)
     return vsInstances
 
 def RegeditGetAllVSInstanceInfo():
-
     vsInstances = []
-    
     vsGenerators = [("14.0", "Visual Studio 14 2015"),
                     ("12.0", "Visual Studio 12 2013"),
+                    ("11.0", "Visual Studio 11 2012"),
                     ("9.0", "Visual Studio 9 2008")]
     vsVariants   = ['VisualStudio\\', 'VCExpress\\',  'WDExpress\\']
     vsEntries    = [("", "InstallDir"), ("\\Setup\\VC", "ProductDir")]
-
 
     for vsGenerator in vsGenerators:
         for vsVariant in vsVariants:
@@ -645,10 +668,6 @@ def RegeditGetAllVSInstanceInfo():
                 key = "SOFTWARE\\Microsoft\\" + vsVariant + vsGenerator[0] + vsEntry[0]
                 valueName = vsEntry[1]
                 
-                #testkey = R"SOFTWARE\Microsoft\Windows\CurrentVersion"
-                #testValueName = "ProgramFilesDir"
-                #key = testkey
-                #valueName = testValueName
                 dir = ReadWinreg(winreg.HKEY_LOCAL_MACHINE, key, valueName)
                 if dir:
                     vsInstanceInfo = VSInstanceInfo()
@@ -662,18 +681,55 @@ def RegeditGetAllVSInstanceInfo():
     vsInstances.sort(key = lambda x: x.getVersion(), reverse=True)
     return vsInstances
 
+def EnvGetAllVSInstanceInfo():
+    vsInstances = []
+    oldVSVersions = [
+        ("Visual Studio 14 2015", "14"),
+        ("Visual Studio 12 2013", "12"),
+        ("Visual Studio 11 2012", "11"),
+        ("Visual Studio 9 2008", "9")]
+
+    for item in oldVSVersions:
+        version = item[1]
+        
+        # VS120COMNTOOLS
+        envVSCommonToolsDir = os.getenv("VS" + version + "0COMNTOOLS") or ""
+
+        if envVSCommonToolsDir:
+            if os.path.isdir(envVSCommonToolsDir):
+                vsInstanceInfo = VSInstanceInfo()
+                vsInstanceInfo.Version = version
+                vsInstanceInfo.VSInstallLocation = os.path.abspath(os.path.join(envVSCommonToolsDir, '../..'))
+                vsInstances.append(vsInstanceInfo)
+    
+    # sort
+    vsInstances.sort(key = lambda x: x.getVersion(), reverse=True)
+    return vsInstances
+    
+
+def GetCMakeDefaultVSInstanceInfo():
+    """return list of one VSInstanceInfo"""
+    output = subprocess.getoutput("cmake --help")
+    if output:
+        m = re.search('\* *(Visual Studio (\d+) (\d+))', output)
+        if m:
+            vsMajor = m.group(2)
+            vsInstance = VSInstanceInfo()
+            vsInstance.Version = vsMajor
+            return [vsInstance]
+
+    return []
+
 class VSInstanceInfo:
     def __init__(self) -> None:
-
-        # exampel:
+        """exampel:
         # VSInstallLocation   : d:\Program Files\Microsoft Visual Studio\2022\Community
         # Version             : 17.4.33213.308
         # versionMajor        : 17
         # VCToolsetVersion    : 14.34.31933
         # bWin10SDK           : True
         # bWin81SDK           : False
-        # chip                : x64
-
+        # chip                : x64"""
         self.VSInstallLocation = None   # option, string
         self.Version = None             # mandatory, string
         self.VCToolsetVersion = None    # option
@@ -705,48 +761,34 @@ class VSInstanceInfo:
 
 vsInstancesCache = None
 
-# return list of VSInstanceInfo object
-# needChipInfo will enumerate package to get chip so a little slow
-# skipEWDK: skip EWDK(Enterprise Windows Driver Kit)
-# ignoreCache: not use cache stored by last call, only true for performance benchmark
 def GetAllVSInstanceInfo(needChipInfo = True, skipEWDK = True, ignoreCache = False):
+    """return list of VSInstanceInfo object
+    needChipInfo: will enumerate package to get chip so a little slow
+    skipEWDK: skip EWDK(Enterprise Windows Driver Kit)
+    ignoreCache: not use cache stored by last call, only true for performance benchmark"""
 
     # get from cache if already searched
     global vsInstancesCache
     if vsInstancesCache and not ignoreCache:
         return vsInstancesCache
     
-    try:
-        # maybe need skip EWDK(Enterprise Windows Driver Kit)
-        vsInstancesCache = GetEWDKAllVSInstanceInfo(skipEWDK)
-        if len(vsInstancesCache) != 0:
-            return vsInstancesCache
+    # maybe need skip EWDK(Enterprise Windows Driver Kit)
+    vsInstancesCache = GetEWDKAllVSInstanceInfo(skipEWDK)
+    if len(vsInstancesCache) != 0:
+        return vsInstancesCache
 
-        # maybe os.getenv("VS170COMNTOOLS") to test recommend version, no need
-
-        # find new version by windows COM, with full setup info
-        vsInstancesCache = ComGetAllVSInstanceInfo(needChipInfo)
-        if len(vsInstancesCache) != 0:
-            return vsInstancesCache
-        
-        # find new version by vswhere, with only path version info
-        vsInstancesCache = VSWhereGetAllVSInstanceInfo()
-        if len(vsInstancesCache) != 0:
-            return vsInstancesCache
-        
-        # find old version by register table, with only path version info
-        vsInstancesCache = RegeditGetAllVSInstanceInfo()
-        if len(vsInstancesCache) != 0:
-            return vsInstancesCache
-        
-    except Exception as e:
-        print("GetAllVSInstanceInfo fail:", e)
+    # find new version by windows COM with full info
+    # if fail, find with vswhere with only path and version info
+    # find old version by register table, with only path version info
+    # if fail, get from env
+    vsInstancesCache = ComGetAllVSInstanceInfo(needChipInfo) or VSWhereGetAllVSInstanceInfo()
+    vsInstancesCache += RegeditGetAllVSInstanceInfo() or EnvGetAllVSInstanceInfo()
+    if len(vsInstancesCache) != 0:
+        return vsInstancesCache
+    
+    # try to get CMake default generator
+    vsInstancesCache = GetCMakeDefaultVSInstanceInfo()
+    if len(vsInstancesCache) != 0:
+        return vsInstancesCache
     
     return []
-
-# test
-if __name__ == '__main__':
-    for i in range(100000):
-        a = GetAllVSInstanceInfo()
-        if i % 1000 == 0:
-            print("i:", i, a)
