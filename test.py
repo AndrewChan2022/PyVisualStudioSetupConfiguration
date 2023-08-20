@@ -4,9 +4,11 @@ import time
 
 if __name__ == '__main__':
 
-
     print("********* GetAllVSInstanceInfo: **************")
     print(GetAllVSInstanceInfo())
+
+    print("********* GetDefaultVSInstance: **************")
+    print(vssetup.GetDefaultVSInstance())
 
     print("********* ComGetAllVSInstanceInfo: **************")
     print(vssetup.ComGetAllVSInstanceInfo())

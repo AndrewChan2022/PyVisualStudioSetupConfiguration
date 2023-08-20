@@ -5,7 +5,7 @@ this_directory = Path(__file__).parent
 long_description = (this_directory / "readme.md").read_text()
 
 setup(name='PyVisualStudioSetupConfiguration',
-      version='1.1.0',
+      version='1.1.1',
       description='Find VisualStudio Setup information',
       long_description = long_description,
       long_description_content_type="text/markdown",

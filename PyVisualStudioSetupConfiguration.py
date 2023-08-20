@@ -751,7 +751,7 @@ def GetAllVSInstanceInfo(needChipInfo = True, skipEWDK = True, ignoreCache = Fal
 
     # find new version by windows COM with full info
     # if fail, find with vswhere with only path and version info
-    # find old version by register table, with only path version info
+    # find old version by registry editor, with only path version info
     # if fail, get from env
     vsInstancesCache = ComGetAllVSInstanceInfo(needChipInfo) or VSWhereGetAllVSInstanceInfo()
     vsInstancesCache += RegeditGetAllVSInstanceInfo() or EnvGetAllVSInstanceInfo()
@@ -764,3 +764,15 @@ def GetAllVSInstanceInfo(needChipInfo = True, skipEWDK = True, ignoreCache = Fal
         return vsInstancesCache
     
     return []
+
+def GetDefaultVSInstance(needChipInfo = True, skipEWDK = True, ignoreCache = False):
+    """return None or one VSInstanceInfo"""
+
+    # return instance with highest version
+    # CMake search highest version with bWin10SDK being True, if not found,
+    # then search highest version with bWin81SDK being True, if not found,
+    # then search highest version.
+    # Here we ignore the bWin10SDK and bWin81SDK flag.
+    vsInstances = GetAllVSInstanceInfo(needChipInfo, skipEWDK, ignoreCache)
+    vsInstance = vsInstances[0] if vsInstances else None
+    return vsInstance

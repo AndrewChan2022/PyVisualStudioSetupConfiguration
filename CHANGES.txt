@@ -1,4 +1,9 @@
 
+
+Release 1.1.1
+--------------
+add method GetDefaultVSInstance
+
 Release 1.1.0
 --------------
 fix bugs cannot find visual studio 2022 if 2013 installed
